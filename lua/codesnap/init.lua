@@ -4,6 +4,7 @@ local module = require("codesnap.module")
 local config_module = require("codesnap.config")
 local modal = require("codesnap.modal")
 local path = require("codesnap.path")
+local clipboard = require("codesnap.clipboard")
 
 -- Prepare the path of the Rust module
 -- Try to fetch pre-built library first, then fallback to development build
@@ -24,9 +25,12 @@ end
 -- Save snapshot to specified save_path
 --- @param save_path string
 function main.save(save_path)
-  if save_path == nil then
-    error("Save path is not specified", 0)
+  if save_path == nil or save_path == "" then
+    local dir = vim.fn.expand("~/Pictures/codesnap")
+    vim.fn.mkdir(dir, "p")
+    save_path = dir .. "/codesnap-" .. os.date("%Y-%m-%d_%H-%M-%S") .. ".png"
   end
+  save_path = vim.fn.expand(save_path)
 
   local matched_extension = string.match(save_path, "%.(.+)$")
 
@@ -35,21 +39,50 @@ function main.save(save_path)
   end
 
   generator.save(save_path, config_module.get_config())
-  vim.cmd("delmarks <>")
   vim.notify("Save snapshot in " .. save_path .. " successfully")
+end
+
+-- Render the snapshot to a temporary PNG and hand it to the clipboard tool
+-- that matches the clipboard Neovim is using. The Rust generator's own
+-- clipboard support is only used when no such tool is available.
+local function copy_snapshot(config)
+  local tmp_path = vim.fn.tempname() .. ".png"
+  local saved, save_err = pcall(generator.save, tmp_path, config)
+
+  if saved then
+    if clipboard.copy_image(tmp_path) then
+      vim.fn.delete(tmp_path)
+      vim.notify("The snapshot is copied into clipboard successfully!")
+      return
+    end
+
+    if not clipboard.is_available() and pcall(generator.copy, config) then
+      vim.fn.delete(tmp_path)
+      vim.notify("The snapshot is copied into clipboard successfully!")
+      return
+    end
+
+    vim.notify("Could not copy the snapshot to the clipboard. Image kept at " .. tmp_path, vim.log.levels.WARN)
+    return
+  end
+
+  local copied, copy_err = pcall(generator.copy, config)
+  if copied then
+    vim.notify("The snapshot is copied into clipboard successfully!")
+    return
+  end
+
+  error(save_err or copy_err or "Failed to generate the snapshot", 0)
 end
 
 -- Copy snapshot into clipboard
 function main.copy()
-  generator.copy(config_module.get_config())
-  vim.cmd("delmarks <>")
-  vim.notify("The snapshot is copied into clipboard successfully!")
+  copy_snapshot(config_module.get_config())
 end
 
 -- Generate ASCII code snapshot and copy it into clipboard
 function main.copy_ascii()
   generator.copy_ascii(config_module.get_config())
-  vim.cmd("delmarks <>")
   vim.notify("The ASCII code snapshot is copied into clipboard successfully!")
 end
 
@@ -93,9 +126,7 @@ function main.copy_highlight()
       { start_line, end_line, static.config.highlight_color },
     }
 
-    generator.copy(config)
-    vim.cmd("delmarks <>")
-    vim.notify("The snapshot is copied into clipboard successfully!")
+    copy_snapshot(config)
   end)
 end
 

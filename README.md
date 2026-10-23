@@ -157,6 +157,25 @@ Run `CodeSnap` command, CodeSnap.nvim will generate a snapshot of the currently 
 CodeSnap
 ```
 
+The image is rendered to a temporary PNG and copied with the tool that matches the clipboard Neovim is using (`:checkhealth provider`). Neovim's own providers only handle text, so the provider name is used to pick the image-capable tool, then the OS is detected as a fallback:
+
+| Clipboard | Tool |
+| --- | --- |
+| macOS (`pbcopy`) | `osascript` |
+| Wayland (`wl-copy`) | `wl-copy --type image/png` |
+| X11 (`xclip`, `xsel`) | `xclip -t image/png` (`xsel` cannot copy images) |
+| Windows, WSL (`win32yank`) | PowerShell `Clipboard.SetImage` |
+
+For any other setup, set `copy_command` to a list of arguments (`{file}` is replaced with the PNG path) or a function that receives the path and returns `true` on success:
+
+```lua
+require("codesnap").setup({
+  copy_command = { "my-clipboard-tool", "--image", "{file}" },
+})
+```
+
+If no tool is found, the Rust clipboard implementation is used. If a tool fails, the PNG is kept in a temporary file and its path is shown.
+
 #### Copy into clipboard on Linux Wayland
 Copy screenshots directly into the clipboard is cool, however, it doesn't work well on wl-clipboard, because the wl-clipboard can't paste the content which come from exited processes. As Hyprland document say:
 
